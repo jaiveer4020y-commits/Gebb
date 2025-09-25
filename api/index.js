@@ -1,19 +1,5 @@
-import fetch from "node-fetch";
+import { chromium } from "playwright-core";
 import * as cheerio from "cheerio";
-
-// Helper: decode deeply (handles % encoding multiple times)
-function deepDecode(url) {
-  let prev, curr = url;
-  try {
-    do {
-      prev = curr;
-      curr = decodeURIComponent(curr);
-    } while (curr !== prev);
-    return curr;
-  } catch {
-    return curr;
-  }
-}
 
 export default async function handler(req, res) {
   const { url } = req.query;
@@ -21,41 +7,49 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing ?url=" });
   }
 
+  let browser;
   try {
-    const resp = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; RivestreamScraper/1.0)" }
+    browser = await chromium.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      headless: true
     });
-    const html = await resp.text();
+
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+
+    // wait for 2-3 seconds to let JS build links
+    await page.waitForTimeout(3000);
+
+    const html = await page.content();
     const $ = cheerio.load(html);
 
     let links = [];
 
     $("a[href]").each((_, el) => {
       const text = $(el).text().trim();
-      const rawHref = $(el).attr("href");
-      if (!rawHref) return;
-
-      // decode deeply if contains %3A or %2F etc.
-      const decoded = deepDecode(rawHref);
+      const raw = $(el).attr("href");
+      if (!raw) return;
 
       links.push({
         text,
-        raw: rawHref,
-        decoded
+        raw,
+        decoded: decodeURIComponent(raw)
       });
     });
 
-    // Special filter: asiacloud links
     const asiacloud = links.filter(l => l.raw.includes("asiacloud"));
 
-    res.json({
+    res.setHeader("Content-Type", "application/json");
+    res.status(200).json({
       source: url,
       totalLinks: links.length,
       asiacloud,
       allLinks: links
     });
 
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (browser) await browser.close();
   }
 }
