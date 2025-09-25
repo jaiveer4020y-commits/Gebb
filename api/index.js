@@ -1,66 +1,44 @@
 import fetch from "node-fetch";
 import * as cheerio from "cheerio";
 
-function extractM3u8(encodedHref) {
+export default async function handler(req, res) {
   try {
-    // Example href starts with: https://hlsforge.com/?url=ENCODED&id=...
-    const urlParam = new URL(encodedHref).searchParams.get("url");
-    if (!urlParam) return null;
-
-    // Decode deeply (handles %3A%2F%2F...)
-    let prev, curr = urlParam;
-    do {
-      prev = curr;
-      curr = decodeURIComponent(curr);
-    } while (curr !== prev);
-
-    // Only keep until .m3u8
-    const idx = curr.indexOf(".m3u8");
-    if (idx !== -1) {
-      curr = curr.substring(0, idx + 5);
+    const pageUrl = req.query.url;
+    if (!pageUrl) {
+      return res.status(400).json({ error: "Missing url parameter" });
     }
 
-    return curr;
-  } catch {
-    return null;
-  }
-}
-
-export default async function handler(req, res) {
-  const { url } = req.query;
-  if (!url) {
-    return res.status(400).json({ error: "Missing ?url=" });
-  }
-
-  try {
-    const resp = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (ScraperBot/1.0)" }
+    // Fetch HTML
+    const response = await fetch(pageUrl, {
+      headers: { "User-Agent": "Mozilla/5.0" }
     });
-    const html = await resp.text();
+    const html = await response.text();
+
+    // Parse with cheerio
     const $ = cheerio.load(html);
+    const asiacloud = [];
 
-    let results = [];
-
-    $("a[href]").each((_, el) => {
+    $('a[href*="hlsforge.com/?url"]').each((i, el) => {
+      const raw = $(el).attr("href");
       const text = $(el).text().trim();
-      if (!/AsiaCloud/i.test(text)) return; // only AsiaCloud links
 
-      const rawHref = $(el).attr("href");
-      const m3u8 = extractM3u8(rawHref);
+      // extract url=...m3u8 part and decode
+      const match = raw.match(/url=([^&]+m3u8)/);
+      let decoded = null;
+      if (match) {
+        decoded = decodeURIComponent(match[1]);
+      }
 
-      results.push({
-        text,
-        raw: rawHref,
-        m3u8
-      });
+      asiacloud.push({ text, raw, m3u8: decoded });
     });
 
     res.status(200).json({
-      source: url,
-      asiacloud: results
+      source: pageUrl,
+      total: asiacloud.length,
+      asiacloud
     });
-
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 }
