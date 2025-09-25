@@ -3,19 +3,24 @@ import * as cheerio from "cheerio";
 
 export default async function handler(req, res) {
   try {
-    const pageUrl = req.query.url;
+    // reconstruct full url=... including &
+    const fullUrl = new URL(req.url, `http://${req.headers.host}`);
+    const pageUrl = fullUrl.searchParams.get("url");
+
     if (!pageUrl) {
       return res.status(400).json({ error: "Missing url parameter" });
     }
 
-    // Wait 5 seconds before fetching (simulate page load delay)
+    // wait 5 seconds before fetching (simulate page load delay)
     await new Promise(r => setTimeout(r, 5000));
 
+    // fetch HTML
     const response = await fetch(pageUrl, {
       headers: { "User-Agent": "Mozilla/5.0" }
     });
     const html = await response.text();
 
+    // parse
     const $ = cheerio.load(html);
     const asiacloud = [];
 
