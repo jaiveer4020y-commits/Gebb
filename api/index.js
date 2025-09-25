@@ -3,24 +3,37 @@ import * as cheerio from "cheerio";
 
 export default async function handler(req, res) {
   try {
-    // reconstruct full url=... including &
-    const fullUrl = new URL(req.url, `http://${req.headers.host}`);
-    const pageUrl = fullUrl.searchParams.get("url");
+    // reconstruct the full URL passed in ?url=
+    const base = `http://${req.headers.host}`;
+    const fullReqUrl = new URL(req.url, base);
+    let pageUrl = fullReqUrl.searchParams.get("url");
 
     if (!pageUrl) {
       return res.status(400).json({ error: "Missing url parameter" });
     }
 
-    // wait 5 seconds before fetching (simulate page load delay)
+    // If it's still encoded (starts with https%3A), decode it
+    if (pageUrl.startsWith("http") === false) {
+      pageUrl = decodeURIComponent(pageUrl);
+    }
+
+    // Validate absolute URL
+    try {
+      new URL(pageUrl);
+    } catch {
+      return res.status(400).json({ error: "Invalid url parameter" });
+    }
+
+    // wait 5 seconds before scraping
     await new Promise(r => setTimeout(r, 5000));
 
-    // fetch HTML
+    // fetch page
     const response = await fetch(pageUrl, {
       headers: { "User-Agent": "Mozilla/5.0" }
     });
     const html = await response.text();
 
-    // parse
+    // parse with cheerio
     const $ = cheerio.load(html);
     const asiacloud = [];
 
